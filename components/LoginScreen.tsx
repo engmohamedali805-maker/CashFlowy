@@ -1,47 +1,42 @@
 
 import React, { useState } from 'react';
+import { dataService } from '../services/dataService';
 
 interface LoginScreenProps {
-  onLogin: (username: string, rememberMe: boolean) => void;
+  onLogin: (username: string, state: any, rememberMe: boolean) => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
-  const [isRegistering, setIsRegistering] = useState(() => {
-    const users = localStorage.getItem('app_users');
-    return !users; // Show registration if no users exist
-  });
-  
+  const [isRegistering, setIsRegistering] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleAction = (e: React.FormEvent) => {
+  const handleAction = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
     if (!username || !password) {
       setError('يرجى إدخال اسم المستخدم وكلمة المرور');
+      setLoading(false);
       return;
     }
 
-    const usersStr = localStorage.getItem('app_users');
-    const users = usersStr ? JSON.parse(usersStr) : {};
-
-    if (isRegistering) {
-      if (users[username]) {
-        setError('اسم المستخدم موجود بالفعل');
-        return;
-      }
-      users[username] = password;
-      localStorage.setItem('app_users', JSON.stringify(users));
-      onLogin(username, rememberMe);
-    } else {
-      if (users[username] === password) {
-        onLogin(username, rememberMe);
+    try {
+      if (isRegistering) {
+        await dataService.register(username, password);
+        onLogin(username, {}, rememberMe);
       } else {
-        setError('خطأ في اسم المستخدم أو كلمة المرور');
+        const state = await dataService.login(username, password);
+        onLogin(username, state, rememberMe);
       }
+    } catch (err: any) {
+      setError(err.message === 'Invalid username or password' ? 'خطأ في البيانات' : err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -51,7 +46,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         <div className="text-center mb-8">
             <div className="text-5xl mb-4">💸</div>
             <h1 className="text-3xl font-black text-gray-800 mb-2">CashFlowy</h1>
-            <p className="text-gray-500 text-sm font-bold">إدارة أموالك بذكاء وبساطة</p>
+            <p className="text-gray-500 text-sm font-bold">بياناتك الآن في السحاب ☁️</p>
         </div>
 
         <form onSubmit={handleAction} className="space-y-5">
@@ -63,6 +58,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
               placeholder="مثال: ahmed88"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              disabled={loading}
             />
           </div>
 
@@ -74,6 +70,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
             />
           </div>
 
@@ -84,19 +81,25 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
               className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+              disabled={loading}
             />
             <label htmlFor="rememberMe" className="text-sm font-bold text-gray-600 cursor-pointer select-none">
               تذكرني على هذا الجهاز
             </label>
           </div>
 
-          {error && <p className="text-red-500 text-xs font-bold text-center animate-bounce">{error}</p>}
+          {error && <p className="text-red-500 text-xs font-bold text-center animate-pulse">{error}</p>}
 
           <button 
             type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-blue-200 transition-all active:scale-95"
+            disabled={loading}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-blue-200 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {isRegistering ? 'إنشاء حساب وحفظ الداتا' : 'دخول'}
+            {loading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+                isRegistering ? 'إنشاء حساب سحابي' : 'دخول'
+            )}
           </button>
         </form>
 
@@ -104,6 +107,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             <button 
                 onClick={() => setIsRegistering(!isRegistering)}
                 className="text-blue-600 text-sm font-bold hover:underline"
+                disabled={loading}
             >
                 {isRegistering ? 'لديك حساب بالفعل؟ سجل دخولك' : 'ليس لديك حساب؟ اشترك الآن'}
             </button>

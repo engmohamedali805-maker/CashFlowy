@@ -43,15 +43,16 @@ export const ExpenseInput: React.FC<ExpenseInputProps> = ({ onAddExpense, curren
     onAddExpense(newExpense);
     setAmount('');
     setDescription('');
-    // لا نغير القسم المختار لسهولة إدخال عدة مصاريف من نفس النوع
   };
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 shadow-[0_-15px_40px_rgba(0,0,0,0.1)] z-50 p-4 pb-8">
       <div className="max-w-lg mx-auto">
+        <div className="flex justify-between items-center mb-3 px-1">
+          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">إضافة مصروف جديد</span>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
-          
-          {/* اختيار القسم (أزرار دائرية سريعة) */}
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 -mx-2 px-2">
             {CATEGORIES.map((cat) => (
               <button
