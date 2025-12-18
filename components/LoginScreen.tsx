@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 
 interface LoginScreenProps {
-  onLogin: (username: string) => void;
+  onLogin: (username: string, rememberMe: boolean) => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
@@ -13,6 +13,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
 
   const handleAction = (e: React.FormEvent) => {
@@ -34,10 +35,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       }
       users[username] = password;
       localStorage.setItem('app_users', JSON.stringify(users));
-      onLogin(username);
+      onLogin(username, rememberMe);
     } else {
       if (users[username] === password) {
-        onLogin(username);
+        onLogin(username, rememberMe);
       } else {
         setError('خطأ في اسم المستخدم أو كلمة المرور');
       }
@@ -58,7 +59,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             <label className="block text-xs font-black text-gray-400 uppercase mb-2 mr-1">اسم المستخدم</label>
             <input 
               type="text" 
-              className="w-full bg-gray-50 border-2 border-transparent focus:border-blue-500 focus:bg-white rounded-2xl p-4 outline-none transition-all font-bold text-gray-700"
+              className="w-full bg-gray-50 border-2 border-transparent focus:border-blue-500 focus:bg-white rounded-2xl p-4 outline-none transition-all font-bold text-gray-700 text-right"
               placeholder="مثال: ahmed88"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -69,11 +70,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             <label className="block text-xs font-black text-gray-400 uppercase mb-2 mr-1">كلمة المرور</label>
             <input 
               type="password" 
-              className="w-full bg-gray-50 border-2 border-transparent focus:border-blue-500 focus:bg-white rounded-2xl p-4 outline-none transition-all font-bold text-gray-700"
+              className="w-full bg-gray-50 border-2 border-transparent focus:border-blue-500 focus:bg-white rounded-2xl p-4 outline-none transition-all font-bold text-gray-700 text-right"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
+          </div>
+
+          <div className="flex items-center gap-2 px-1">
+            <input 
+              type="checkbox" 
+              id="rememberMe"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            />
+            <label htmlFor="rememberMe" className="text-sm font-bold text-gray-600 cursor-pointer select-none">
+              تذكرني على هذا الجهاز
+            </label>
           </div>
 
           {error && <p className="text-red-500 text-xs font-bold text-center animate-bounce">{error}</p>}
@@ -82,7 +96,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             type="submit"
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-blue-200 transition-all active:scale-95"
           >
-            {isRegistering ? 'إنشاء حساب جديد' : 'دخول'}
+            {isRegistering ? 'إنشاء حساب وحفظ الداتا' : 'دخول'}
           </button>
         </form>
 

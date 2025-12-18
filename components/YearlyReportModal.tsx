@@ -1,5 +1,6 @@
+
 import React, { useMemo, useState } from 'react';
-import { Expense, BudgetMap, YearlyStats, Income, ObligationPayment, OpeningSavings } from '../types';
+import { Expense, BudgetMap, YearlyStats, Income, ObligationPayment, OpeningSavings, Debt } from '../types';
 
 interface YearlyReportModalProps {
   isOpen: boolean;
@@ -9,6 +10,7 @@ interface YearlyReportModalProps {
   obligationPayments: ObligationPayment[];
   budgets: BudgetMap;
   openingSavings: OpeningSavings | null;
+  debts?: Debt[];
   currentDate: Date;
 }
 
@@ -20,6 +22,7 @@ export const YearlyReportModal: React.FC<YearlyReportModalProps> = ({
   obligationPayments,
   budgets,
   openingSavings,
+  debts = [],
   currentDate 
 }) => {
   const [copyFeedback, setCopyFeedback] = useState(false);
@@ -43,9 +46,12 @@ export const YearlyReportModal: React.FC<YearlyReportModalProps> = ({
     const totalSpent = totalSpentExpenses + totalObligationsPaid;
     const totalIncome = ytdIncomes.reduce((sum, i) => sum + i.amount, 0);
     
-    const totalSaved = totalIncome - totalSpent; // Net Savings from operations
+    const totalSaved = totalIncome - totalSpent; 
     const openingBalance = openingSavings ? openingSavings.totalOpeningQAR : 0;
-    const totalWealth = totalSaved + openingBalance;
+    
+    // Wealth includes: Opening Balance + Saved + Debts at others (not returned)
+    const pendingDebtsValue = debts.filter(d => !d.isReturned).reduce((sum, d) => sum + d.amount, 0);
+    const totalWealth = totalSaved + openingBalance; // Debts are technically already in "totalSaved" because we didn't count 'lending' as an expense, it's just cash movement.
 
     const savingsRate = totalIncome > 0 ? (totalSaved / totalIncome) * 100 : 0;
     const avgMonthlySavings = totalSaved / (currentMonthIndex + 1);
@@ -97,7 +103,7 @@ export const YearlyReportModal: React.FC<YearlyReportModalProps> = ({
     const recommendations: string[] = [];
     if (savingsRate < 10) recommendations.push("معدل ادخارك منخفض (أقل من 10%).");
     if (savingsRate > 30) recommendations.push("ممتاز! معدل ادخارك صحي جداً.");
-    if (openingBalance === 0) recommendations.push("لم تقم بإضافة رصيد افتتاحي (ذهب/نقد) بعد.");
+    if (pendingDebtsValue > 0) recommendations.push(`لديك ديون مستحقة عند الآخرين بقيمة ${pendingDebtsValue.toLocaleString()}.`);
 
     return {
         totalIncome,
@@ -114,7 +120,7 @@ export const YearlyReportModal: React.FC<YearlyReportModalProps> = ({
         recommendations,
         currency
     };
-  }, [isOpen, expenses, incomes, obligationPayments, openingSavings, currentDate]);
+  }, [isOpen, expenses, incomes, obligationPayments, openingSavings, debts, currentDate]);
 
   if (!isOpen) return null;
 
@@ -186,7 +192,7 @@ export const YearlyReportModal: React.FC<YearlyReportModalProps> = ({
                     </div>
                 </div>
 
-                {/* Best/Worst Months (Existing logic) */}
+                {/* Best/Worst Months */}
                 <div className="grid grid-cols-2 gap-3">
                     {stats.bestMonth && (
                         <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100">

@@ -29,7 +29,17 @@ export interface Obligation {
   active: boolean;
 }
 
-// Tracks if an obligation is paid for a specific month
+export interface Debt {
+  id: string;
+  personName: string;
+  amount: number;
+  currency: string;
+  lentDate: string;
+  dueDate: string;
+  isReturned: boolean;
+  notes?: string;
+}
+
 export interface ObligationPayment {
   id: string;
   obligationId: string;
@@ -75,22 +85,4 @@ export interface YearlyStats {
   trend: 'up' | 'down' | 'stable';
   recommendations: string[];
   currency: string;
-}
-
-// Interface for Gemini response when parsing natural language expenses
-export interface ParsedExpenseResponse {
-  amount: number;
-  currency: string;
-  category: string;
-  date: string;
-  description: string;
-}
-
-// Interface for Gemini response when analyzing monthly budget
-export interface BudgetAnalysis {
-  alertLevel: 'warning' | 'critical' | 'safe';
-  summary: string;
-  dailyAdjustment: string;
-  topIssues: string[];
-  recommendations: string[];
 }

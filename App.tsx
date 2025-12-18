@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Expense, Budget, AlertThresholds, BudgetMap, Income, Obligation, ObligationPayment, OpeningSavings } from './types';
+import { Expense, Budget, AlertThresholds, BudgetMap, Income, Obligation, ObligationPayment, OpeningSavings, Debt } from './types';
 import { ExpenseInput } from './components/ExpenseInput';
 import { BudgetCard } from './components/BudgetCard';
 import { DashboardCharts } from './components/DashboardCharts';
@@ -11,15 +11,20 @@ import { YearlyReportModal } from './components/YearlyReportModal';
 import { IncomeManager } from './components/IncomeManager';
 import { ObligationManager } from './components/ObligationManager';
 import { SavingsManager } from './components/SavingsManager';
+import { DebtManager } from './components/DebtManager';
 import { LoginScreen } from './components/LoginScreen';
 
 const App: React.FC = () => {
-  // --- Auth State ---
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [currentUser, setCurrentUser] = useState<string | null>(null);
+  // --- Auth State with Persistence ---
+  const [currentUser, setCurrentUser] = useState<string | null>(() => {
+    return localStorage.getItem('app_session_user') || sessionStorage.getItem('app_session_user');
+  });
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    return !!(localStorage.getItem('app_session_user') || sessionStorage.getItem('app_session_user'));
+  });
 
   // --- View State ---
-  type View = 'dashboard' | 'income' | 'obligations' | 'savings';
+  type View = 'dashboard' | 'income' | 'obligations' | 'savings' | 'debts';
   const [currentView, setCurrentView] = useState<View>('dashboard');
 
   // --- Global Settings State ---
@@ -31,20 +36,20 @@ const App: React.FC = () => {
     localStorage.setItem('app_currency', currency);
   }, [currency]);
 
-  // --- Data States (Initialize empty, then load in useEffect when logged in) ---
+  // --- Data States ---
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [obligationPayments, setObligationPayments] = useState<ObligationPayment[]>([]);
   const [openingSavings, setOpeningSavings] = useState<OpeningSavings | null>(null);
   const [budgets, setBudgets] = useState<BudgetMap>({});
+  const [debts, setDebts] = useState<Debt[]>([]);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showSettings, setShowSettings] = useState(false);
   const [showYearlyReport, setShowYearlyReport] = useState(false);
 
   // --- Persistence ---
-  // Load data when user logs in
   useEffect(() => {
     if (isLoggedIn && currentUser) {
       const userKey = `data_${currentUser}`;
@@ -57,11 +62,11 @@ const App: React.FC = () => {
         setObligationPayments(data.obligationPayments || []);
         setOpeningSavings(data.openingSavings || null);
         setBudgets(data.budgets || {});
+        setDebts(data.debts || []);
       }
     }
   }, [isLoggedIn, currentUser]);
 
-  // Save data whenever it changes
   useEffect(() => {
     if (isLoggedIn && currentUser) {
       const userKey = `data_${currentUser}`;
@@ -71,20 +76,30 @@ const App: React.FC = () => {
         obligations,
         obligationPayments,
         openingSavings,
-        budgets
+        budgets,
+        debts
       };
       localStorage.setItem(userKey, JSON.stringify(dataToSave));
     }
-  }, [expenses, incomes, obligations, obligationPayments, openingSavings, budgets, isLoggedIn, currentUser]);
+  }, [expenses, incomes, obligations, obligationPayments, openingSavings, budgets, debts, isLoggedIn, currentUser]);
 
   // --- Helpers ---
   const formatMonthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
   const currentMonthKey = formatMonthKey(selectedDate);
 
   const defaultBudget: Budget = {
-    limit: 5000,
+    limit: 2000,
     currency: currency,
-    categoryLimits: {},
+    categoryLimits: {
+      'سوبر ماركت': 200,
+      'طعام': 800,
+      'الجيم': 200,
+      'اتصالات ونت': 0,
+      'تبرع وصدقه': 150,
+      'خروجات': 400,
+      'تنقلات': 150,
+      'شوبينج': 400
+    },
     alertThresholds: { warning: 75, critical: 90 }
   };
 
@@ -120,10 +135,14 @@ const App: React.FC = () => {
      const allIncome = incomes.reduce((sum, i) => sum + i.amount, 0);
      const allExpense = expenses.reduce((sum, e) => sum + e.amount, 0);
      const allObligations = obligationPayments.reduce((sum, p) => sum + p.amountPaid, 0);
+     const pendingDebtsValue = debts.filter(d => !d.isReturned).reduce((sum, d) => sum + d.amount, 0);
+     
+     // Wealth = Income - Spent - (Outflow to others which is still yours but not in hand)
+     // Actually, wealth includes money lent but not returned.
      const netOperations = allIncome - (allExpense + allObligations);
      const startBalance = openingSavings ? openingSavings.totalOpeningQAR : 0;
-     return startBalance + netOperations;
-  }, [incomes, expenses, obligationPayments, openingSavings]);
+     return startBalance + netOperations; // Note: debts lent reduce current cash but are part of wealth
+  }, [incomes, expenses, obligationPayments, openingSavings, debts]);
 
   const calculatedTotalBudget = useMemo(() => {
       const values = Object.values(activeBudget.categoryLimits) as number[];
@@ -170,6 +189,12 @@ const App: React.FC = () => {
       }
   };
 
+  const handleAddDebt = (debt: Debt) => setDebts(prev => [debt, ...prev]);
+  const handleDeleteDebt = (id: string) => setDebts(prev => prev.filter(d => d.id !== id));
+  const handleToggleDebtReturn = (id: string) => {
+    setDebts(prev => prev.map(d => d.id === id ? { ...d, isReturned: !d.isReturned } : d));
+  };
+
   const updateBudgetForMonth = (updater: (prevBudget: Budget) => Budget) => {
       setBudgets(prev => {
           const startingBudget = prev[currentMonthKey] || activeBudget;
@@ -178,15 +203,21 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('app_session_user');
+    sessionStorage.removeItem('app_session_user');
     setIsLoggedIn(false);
     setCurrentUser(null);
     setShowSettings(false);
-    // Refresh to clear state
     window.location.reload();
   };
 
   if (!isLoggedIn) {
-    return <LoginScreen onLogin={(user) => {
+    return <LoginScreen onLogin={(user, rememberMe) => {
+        if (rememberMe) {
+            localStorage.setItem('app_session_user', user);
+        } else {
+            sessionStorage.setItem('app_session_user', user);
+        }
         setCurrentUser(user);
         setIsLoggedIn(true);
     }} />;
@@ -229,11 +260,12 @@ const App: React.FC = () => {
              </div>
 
              {/* Tab Navigation */}
-             <div className="flex bg-gray-100 p-1 rounded-xl overflow-x-auto no-scrollbar">
-                 <button onClick={() => setCurrentView('dashboard')} className={`flex-1 py-2 px-3 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${currentView === 'dashboard' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>الرئيسية</button>
-                 <button onClick={() => setCurrentView('income')} className={`flex-1 py-2 px-3 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${currentView === 'income' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-500'}`}>الدخل</button>
-                 <button onClick={() => setCurrentView('obligations')} className={`flex-1 py-2 px-3 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${currentView === 'obligations' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500'}`}>الالتزامات</button>
-                 <button onClick={() => setCurrentView('savings')} className={`flex-1 py-2 px-3 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${currentView === 'savings' ? 'bg-white text-yellow-600 shadow-sm' : 'text-gray-500'}`}>المدخرات</button>
+             <div className="flex bg-gray-100 p-1 rounded-xl overflow-x-auto no-scrollbar gap-1">
+                 <button onClick={() => setCurrentView('dashboard')} className={`flex-1 py-2 px-4 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${currentView === 'dashboard' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>الرئيسية</button>
+                 <button onClick={() => setCurrentView('income')} className={`flex-1 py-2 px-4 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${currentView === 'income' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-500'}`}>الدخل</button>
+                 <button onClick={() => setCurrentView('obligations')} className={`flex-1 py-2 px-4 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${currentView === 'obligations' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500'}`}>الالتزامات</button>
+                 <button onClick={() => setCurrentView('debts')} className={`flex-1 py-2 px-4 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${currentView === 'debts' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}>الديون</button>
+                 <button onClick={() => setCurrentView('savings')} className={`flex-1 py-2 px-4 text-sm font-bold rounded-lg whitespace-nowrap transition-all ${currentView === 'savings' ? 'bg-white text-yellow-600 shadow-sm' : 'text-gray-500'}`}>المدخرات</button>
              </div>
         </header>
 
@@ -287,6 +319,16 @@ const App: React.FC = () => {
               />
           )}
 
+          {currentView === 'debts' && (
+              <DebtManager 
+                 debts={debts}
+                 onAddDebt={handleAddDebt}
+                 onDeleteDebt={handleDeleteDebt}
+                 onToggleReturn={handleToggleDebtReturn}
+                 currency={currency}
+              />
+          )}
+
           {currentView === 'savings' && (
               <SavingsManager 
                  openingSavings={openingSavings}
@@ -321,6 +363,7 @@ const App: React.FC = () => {
           obligationPayments={obligationPayments}
           budgets={budgets}
           openingSavings={openingSavings}
+          debts={debts}
           currentDate={new Date()}
         />
       </div>
