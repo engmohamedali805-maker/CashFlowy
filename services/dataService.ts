@@ -1,85 +1,85 @@
 
 export const dataService = {
-  // Fetches the entire application state for a given sync key
+  /**
+   * جلب البيانات من السحابة باستخدام مفتاح المزامنة (Sync Key)
+   */
   async fetchState(syncKey: string) {
     if (!syncKey) return null;
     try {
-      const res = await fetch(`/api/data?username=${encodeURIComponent(syncKey)}`);
-      if (!res.ok) throw new Error('فشل جلب البيانات من السحابة');
-      const data = await res.json();
+      const response = await fetch(`/api/data?username=${encodeURIComponent(syncKey)}`);
+      
+      if (!response.ok) {
+        // إذا لم يجد بيانات (404 مثلاً أو مستخدم جديد) لا نعتبره خطأ فادحاً
+        if (response.status === 404) return null;
+        throw new Error(`Cloud error: ${response.status}`);
+      }
+
+      const data = await response.json();
       return data.state;
     } catch (err) {
-      console.error(err);
+      console.warn('Network issue fetching data from cloud, using local cache if available.');
       return null;
     }
   },
 
-  // Syncs the entire state (used by App.tsx)
-  async syncState(username: string, state: any) {
-    return fetch('/api/data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, state }),
-    });
+  /**
+   * مزامنة الحالة الكاملة للتطبيق مع قاعدة بيانات Neon
+   */
+  async syncState(syncKey: string, state: any) {
+    if (!syncKey) return;
+    try {
+      const response = await fetch('/api/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          action: 'sync', 
+          username: syncKey, 
+          state 
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Sync failed on server');
+      }
+      return await response.json();
+    } catch (err) {
+      console.error('Cloud sync failed - data is saved locally for now');
+      throw err;
+    }
   },
 
-  // Registers a new user account (used by LoginScreen.tsx)
-  async register(username: string, password: string) {
-    const res = await fetch('/api/data', {
+  /**
+   * تسجيل حساب سحابي جديد محمي بكلمة مرور
+   */
+  async register(username: string, password: string): Promise<void> {
+    const response = await fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, action: 'register' }),
+      body: JSON.stringify({ action: 'register', username, password }),
     });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Registration failed');
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'فشل في إنشاء الحساب السحابي');
     }
-    return res.json();
   },
 
-  // Logs into an existing account (used by LoginScreen.tsx)
-  async login(username: string, password: string) {
-    const res = await fetch('/api/data', {
+  /**
+   * تسجيل الدخول واستعادة البيانات السحابية
+   */
+  async login(username: string, password: string): Promise<any> {
+    const response = await fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, action: 'login' }),
+      body: JSON.stringify({ action: 'login', username, password }),
     });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Login failed');
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'خطأ في اسم المستخدم أو كلمة المرور');
     }
-    const data = await res.json();
+    
+    const data = await response.json();
     return data.state;
-  },
-
-  // Syncs an individual transaction
-  async syncTransaction(username: string, transaction: any) {
-    return fetch('/api/data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, action: 'sync_transaction', payload: transaction }),
-    });
-  },
-
-  // Deletes an individual transaction
-  async deleteTransaction(username: string, id: string) {
-    return fetch('/api/data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, action: 'delete_transaction', payload: { id } }),
-    });
-  },
-
-  // Syncs budget limits for a month
-  async syncBudget(username: string, monthKey: string, budgetData: any) {
-    return fetch('/api/data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        username, 
-        action: 'sync_budget', 
-        payload: { monthKey, limit: budgetData.limit, categoryLimits: budgetData.categoryLimits } 
-      }),
-    });
   }
 };
