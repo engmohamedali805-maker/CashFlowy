@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Expense, BudgetMap, Income, Obligation, ObligationPayment, OpeningSavings, Debt } from './types';
 import { ExpenseInput } from './components/ExpenseInput';
@@ -40,18 +41,18 @@ const App: React.FC = () => {
   }, [syncKey]);
 
   const applyState = (state: any) => {
-    if (!state || Object.keys(state).length === 0) return;
-    if (state.expenses) setExpenses(state.expenses);
-    if (state.incomes) setIncomes(state.incomes);
-    if (state.obligations) setObligations(state.obligations);
-    if (state.obligationPayments) setObligationPayments(state.obligationPayments);
+    if (!state || typeof state !== 'object') return;
+    if (Array.isArray(state.expenses)) setExpenses(state.expenses);
+    if (Array.isArray(state.incomes)) setIncomes(state.incomes);
+    if (Array.isArray(state.obligations)) setObligations(state.obligations);
+    if (Array.isArray(state.obligationPayments)) setObligationPayments(state.obligationPayments);
     if (state.openingSavings) setOpeningSavings(state.openingSavings);
     if (state.budgets) setBudgets(state.budgets);
-    if (state.debts) setDebts(state.debts);
+    if (Array.isArray(state.debts)) setDebts(state.debts);
     if (state.currency) setCurrency(state.currency);
   };
 
-  // جلب البيانات من Neon عند البداية أو تغيير المفتاح
+  // جلب البيانات من Neon
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
@@ -72,7 +73,7 @@ const App: React.FC = () => {
     loadData();
   }, [syncKey]);
 
-  // مزامنة تلقائية مع Neon عند أي تغيير في البيانات
+  // مزامنة تلقائية مع Neon
   useEffect(() => {
     if (isLoading) return;
 
@@ -100,19 +101,17 @@ const App: React.FC = () => {
   
   const activeBudget = useMemo(() => {
     return budgets[currentMonthKey] || {
-      limit: 0, // Default changed to 0 as we use sum
+      limit: 0,
       currency: currency,
       categoryLimits: {},
       alertThresholds: { warning: 75, critical: 90 }
     };
   }, [budgets, currentMonthKey, currency]);
 
-  // حساب إجمالي ميزانية الشهر من مجموع ميزانيات الأقسام
+  // حساب إجمالي الميزانية من مجموع الأقسام فقط
   const totalBudgetFromCategories = useMemo(() => {
-    // Adding explicit types to reduce to fix potential 'unknown' type issues
-    const sum = Object.values(activeBudget.categoryLimits).reduce((acc: number, val: number) => acc + val, 0);
-    // لو مفيش ميزانيات أقسام، بنرجع الـ limit العام (اختياري، هنا هنخليها تعتمد كلياً على المجموع)
-    return sum;
+    const limits = activeBudget.categoryLimits || {};
+    return Object.values(limits).reduce((acc: number, val: number) => acc + (val || 0), 0);
   }, [activeBudget.categoryLimits]);
 
   const updateCategoryLimit = (category: string, limit: number) => {
@@ -121,7 +120,7 @@ const App: React.FC = () => {
       [currentMonthKey]: {
         ...activeBudget,
         categoryLimits: {
-          ...activeBudget.categoryLimits,
+          ...(activeBudget.categoryLimits || {}),
           [category]: limit
         }
       }
@@ -130,13 +129,12 @@ const App: React.FC = () => {
 
   const currentMonthExpenses = expenses.filter(e => e.date.startsWith(currentMonthKey));
   const currentMonthIncomes = incomes.filter(i => i.date.startsWith(currentMonthKey));
-  // Adding explicit types to reduce to fix potential 'unknown' type issues
+  
   const totalSpentExpenses = currentMonthExpenses.reduce((sum: number, item: Expense) => sum + item.amount, 0);
   const totalIncomeMonth = currentMonthIncomes.reduce((sum: number, item: Income) => sum + item.amount, 0);
 
   const totalCumulativeWealth = useMemo(() => {
     const opening = openingSavings ? openingSavings.totalOpeningQAR : 0;
-    // Adding explicit types to reduce to fix line 113 error where types were inferred as 'unknown'
     const allIncomes = incomes.reduce((sum: number, i: Income) => sum + i.amount, 0);
     const allExpenses = expenses.reduce((sum: number, e: Expense) => sum + e.amount, 0);
     const allObligationsPaid = obligationPayments.reduce((sum: number, p: ObligationPayment) => sum + p.amountPaid, 0);
@@ -154,7 +152,7 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50 text-right font-sans mb-32" dir="rtl">
       <div className={`fixed top-0 left-0 right-0 h-0.5 z-[100] transition-opacity duration-300 ${isSyncing ? 'opacity-100' : 'opacity-0'}`}>
-        <div className="h-full bg-blue-500 animate-[shimmer_1.5s_infinite]"></div>
+        <div className="h-full bg-blue-500"></div>
       </div>
 
       <div className="max-w-lg mx-auto">
@@ -165,7 +163,7 @@ const App: React.FC = () => {
                 <span>CashFlowy</span>
                 <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-orange-400 animate-pulse' : 'bg-emerald-400'}`}></span>
               </h1>
-              <span className="text-[10px] text-gray-400 font-bold mr-0.5 mt-0.5">مزامنة سحابية نشطة</span>
+              <span className="text-[10px] text-gray-400 font-bold mr-0.5 mt-0.5">فلوسك تحت السيطرة</span>
             </div>
             <button onClick={() => setShowSettings(true)} className="w-10 h-10 flex items-center justify-center bg-blue-50 text-blue-600 rounded-xl border border-blue-100 shadow-sm active:scale-90 transition-all">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -214,9 +212,8 @@ const App: React.FC = () => {
                   <BudgetCard 
                     totalIncome={totalIncomeMonth}
                     totalExpenses={totalSpentExpenses}
-                    // Adding explicit types to reduce to fix potential 'unknown' type issues
                     totalObligations={obligationPayments.filter(p => p.monthKey === currentMonthKey).reduce((s: number, p: ObligationPayment) => s + p.amountPaid, 0)}
-                    budgetLimit={totalBudgetFromCategories} // ميزانية الشهر أصبحت المجموع المحسوب
+                    budgetLimit={totalBudgetFromCategories}
                     currency={currency}
                     overBudgetCategories={[]}
                     selectedDate={selectedDate}
@@ -226,7 +223,7 @@ const App: React.FC = () => {
                   />
                   <CategoryBudgetList 
                     expenses={currentMonthExpenses}
-                    categoryLimits={activeBudget.categoryLimits}
+                    categoryLimits={activeBudget.categoryLimits || {}}
                     currency={currency}
                     onUpdateCategoryLimit={updateCategoryLimit}
                     thresholds={activeBudget.alertThresholds}
