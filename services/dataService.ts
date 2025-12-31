@@ -1,58 +1,85 @@
 
 export const dataService = {
-  // جلب البيانات باستخدام مفتاح المزامنة
+  // Fetches the entire application state for a given sync key
   async fetchState(syncKey: string) {
     if (!syncKey) return null;
     try {
-      const response = await fetch(`/api/data?username=${encodeURIComponent(syncKey)}`);
-      if (!response.ok) return null;
-      const data = await response.json();
+      const res = await fetch(`/api/data?username=${encodeURIComponent(syncKey)}`);
+      if (!res.ok) throw new Error('فشل جلب البيانات من السحابة');
+      const data = await res.json();
       return data.state;
     } catch (err) {
-      console.warn('Network issue fetching data from cloud');
+      console.error(err);
       return null;
     }
   },
 
-  // حفظ المزامنة
-  async syncState(syncKey: string, state: any) {
-    if (!syncKey) return;
-    try {
-      await fetch('/api/data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'sync', username: syncKey, state }),
-      });
-    } catch (err) {
-      console.error('Cloud sync failed');
-    }
-  },
-
-  // تسجيل حساب جديد
-  async register(username: string, password: string): Promise<void> {
-    const response = await fetch('/api/data', {
+  // Syncs the entire state (used by App.tsx)
+  async syncState(username: string, state: any) {
+    return fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'register', username, password }),
+      body: JSON.stringify({ username, state }),
     });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || 'فشل في إنشاء الحساب');
-    }
   },
 
-  // تسجيل الدخول
-  async login(username: string, password: string): Promise<any> {
-    const response = await fetch('/api/data', {
+  // Registers a new user account (used by LoginScreen.tsx)
+  async register(username: string, password: string) {
+    const res = await fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'login', username, password }),
+      body: JSON.stringify({ username, password, action: 'register' }),
     });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || 'خطأ في الدخول');
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Registration failed');
     }
-    const data = await response.json();
+    return res.json();
+  },
+
+  // Logs into an existing account (used by LoginScreen.tsx)
+  async login(username: string, password: string) {
+    const res = await fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, action: 'login' }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Login failed');
+    }
+    const data = await res.json();
     return data.state;
+  },
+
+  // Syncs an individual transaction
+  async syncTransaction(username: string, transaction: any) {
+    return fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, action: 'sync_transaction', payload: transaction }),
+    });
+  },
+
+  // Deletes an individual transaction
+  async deleteTransaction(username: string, id: string) {
+    return fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, action: 'delete_transaction', payload: { id } }),
+    });
+  },
+
+  // Syncs budget limits for a month
+  async syncBudget(username: string, monthKey: string, budgetData: any) {
+    return fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        username, 
+        action: 'sync_budget', 
+        payload: { monthKey, limit: budgetData.limit, categoryLimits: budgetData.categoryLimits } 
+      }),
+    });
   }
 };
