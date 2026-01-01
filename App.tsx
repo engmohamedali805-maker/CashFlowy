@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Expense, BudgetMap, Income, Obligation, ObligationPayment, OpeningSavings, Debt } from './types';
 import { ExpenseInput } from './components/ExpenseInput';
 import { BudgetCard } from './components/BudgetCard';
@@ -11,18 +11,18 @@ import { ObligationManager } from './components/ObligationManager';
 import { SavingsManager } from './components/SavingsManager';
 import { DebtManager } from './components/DebtManager';
 import { CategoryBudgetList } from './components/CategoryBudgetList';
+import { LoginScreen } from './components/LoginScreen'; 
 import { dataService } from './services/dataService';
-
-// توليد مفتاح عشوائي لأول مرة
-const generateSyncKey = () => Math.random().toString(36).substring(2, 10).toUpperCase();
+import { YearlyReportModal } from './components/YearlyReportModal';
 
 const App: React.FC = () => {
-  const [syncKey, setSyncKey] = useState<string>(() => {
-    return localStorage.getItem('cashflowy_sync_key') || generateSyncKey();
-  });
+  // Authentication State
+  const [username, setUsername] = useState<string | null>(null);
+  const justLoggedIn = useRef(false);
   
+  // App Data State
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [currentView, setCurrentView] = useState<'dashboard' | 'income' | 'obligations' | 'savings' | 'debts'>('dashboard');
   const [currency, setCurrency] = useState('QAR');
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -34,11 +34,15 @@ const App: React.FC = () => {
   const [debts, setDebts] = useState<Debt[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showSettings, setShowSettings] = useState(false);
+  const [showYearlyReport, setShowYearlyReport] = useState(false);
 
-  // حفظ المفتاح محلياً
+  // Check for saved session on mount
   useEffect(() => {
-    localStorage.setItem('cashflowy_sync_key', syncKey);
-  }, [syncKey]);
+    const savedUser = localStorage.getItem('cashflowy_username');
+    if (savedUser) {
+      setUsername(savedUser);
+    }
+  }, []);
 
   const applyState = (state: any) => {
     if (!state || typeof state !== 'object') return;
@@ -52,51 +56,83 @@ const App: React.FC = () => {
     if (state.currency) setCurrency(state.currency);
   };
 
-  // جلب البيانات من Neon
+  // Login Handler
+  const handleLogin = (user: string, state: any, rememberMe: boolean) => {
+    setUsername(user);
+    applyState(state);
+    justLoggedIn.current = true;
+    if (rememberMe) {
+      localStorage.setItem('cashflowy_username', user);
+    }
+  };
+
+  // Logout Handler
+  const handleLogout = () => {
+    localStorage.removeItem('cashflowy_username');
+    setUsername(null);
+    setExpenses([]);
+    setIncomes([]);
+    setObligations([]);
+    setDebts([]);
+    setOpeningSavings(null);
+  };
+
+  // Fetch Data from Neon when username changes
   useEffect(() => {
+    if (!username) return;
+
+    // Skip fetch if we just logged in (data is already passed from LoginScreen)
+    if (justLoggedIn.current) {
+        justLoggedIn.current = false;
+        return;
+    }
+
     const loadData = async () => {
       setIsLoading(true);
       try {
-        const cloudState = await dataService.fetchState(syncKey);
+        const cloudState = await dataService.fetchState(username);
         if (cloudState) {
           applyState(cloudState);
-        } else {
-          const localData = localStorage.getItem(`data_${syncKey}`);
-          if (localData) applyState(JSON.parse(localData));
         }
       } catch (e) {
         console.error("Fetch failed", e);
+        // Only logout on specific auth error to avoid clearing session on network blip
+        if (String(e).includes('User not found') || String(e).includes('Account does not exist')) {
+            handleLogout();
+        }
       } finally {
         setIsLoading(false);
       }
     };
     loadData();
-  }, [syncKey]);
+  }, [username]);
 
-  // مزامنة تلقائية مع Neon
+  // Sync Data to Neon
   useEffect(() => {
-    if (isLoading) return;
+    if (!username || isLoading) return;
 
     const stateToSync = {
       expenses, incomes, obligations, obligationPayments, openingSavings, budgets, debts, currency
     };
     
-    localStorage.setItem(`data_${syncKey}`, JSON.stringify(stateToSync));
+    // Backup locally just in case
+    localStorage.setItem(`backup_${username}`, JSON.stringify(stateToSync));
 
     const timer = setTimeout(async () => {
       setIsSyncing(true);
       try {
-        await dataService.syncState(syncKey, stateToSync);
+        await dataService.syncState(username, stateToSync);
       } catch (e) {
-        console.warn("Cloud sync deferred");
+        console.warn("Cloud sync failed momentarily", e);
       } finally {
         setIsSyncing(false);
       }
-    }, 2000);
+    }, 2000); // Debounce sync
 
     return () => clearTimeout(timer);
-  }, [expenses, incomes, obligations, obligationPayments, openingSavings, budgets, debts, currency, isLoading, syncKey]);
+  }, [expenses, incomes, obligations, obligationPayments, openingSavings, budgets, debts, currency, isLoading, username]);
 
+  // Calculations
   const currentMonthKey = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}`;
   
   const activeBudget = useMemo(() => {
@@ -108,7 +144,6 @@ const App: React.FC = () => {
     };
   }, [budgets, currentMonthKey, currency]);
 
-  // حساب إجمالي الميزانية من مجموع الأقسام فقط
   const totalBudgetFromCategories = useMemo(() => {
     const limits = activeBudget.categoryLimits || {};
     return Object.values(limits).reduce((acc: number, val: number) => acc + (val || 0), 0);
@@ -149,29 +184,47 @@ const App: React.FC = () => {
 
   const monthNames = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
 
+  // ---------------- RENDER ----------------
+  
+  if (!username) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 text-right font-sans mb-32" dir="rtl">
+      {/* Sync Indicator */}
       <div className={`fixed top-0 left-0 right-0 h-0.5 z-[100] transition-opacity duration-300 ${isSyncing ? 'opacity-100' : 'opacity-0'}`}>
-        <div className="h-full bg-blue-500"></div>
+        <div className="h-full bg-blue-500 animate-pulse"></div>
       </div>
 
       <div className="max-w-lg mx-auto">
+        {/* Header */}
         <header className="p-4 bg-white shadow-sm sticky top-0 z-40 border-b border-gray-100">
           <div className="flex justify-between items-center mb-3">
             <div className="flex flex-col">
               <h1 className="text-xl font-black text-blue-600 flex items-center gap-1 leading-none">
                 <span>CashFlowy</span>
-                <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-orange-400 animate-pulse' : 'bg-emerald-400'}`}></span>
+                <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-orange-400' : 'bg-emerald-400'}`}></span>
               </h1>
-              <span className="text-[10px] text-gray-400 font-bold mr-0.5 mt-0.5">فلوسك تحت السيطرة</span>
+              <span className="text-[10px] text-gray-400 font-bold mr-0.5 mt-0.5">
+                  {`مرحباً، ${username} 👋`}
+              </span>
             </div>
-            <button onClick={() => setShowSettings(true)} className="w-10 h-10 flex items-center justify-center bg-blue-50 text-blue-600 rounded-xl border border-blue-100 shadow-sm active:scale-90 transition-all">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                </svg>
-            </button>
+            <div className="flex gap-2">
+                 <button onClick={() => setShowYearlyReport(true)} className="w-10 h-10 flex items-center justify-center bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-100 shadow-sm active:scale-90 transition-all">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                 </button>
+                <button onClick={() => setShowSettings(true)} className="w-10 h-10 flex items-center justify-center bg-blue-50 text-blue-600 rounded-xl border border-blue-100 shadow-sm active:scale-90 transition-all">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                    </svg>
+                </button>
+            </div>
           </div>
           
+          {/* Navigation */}
           <div className="flex bg-gray-100 p-1 rounded-xl gap-1 overflow-x-auto no-scrollbar">
             {['dashboard', 'income', 'obligations', 'debts', 'savings'].map((v) => (
               <button 
@@ -185,6 +238,7 @@ const App: React.FC = () => {
           </div>
         </header>
 
+        {/* Date Navigator */}
         <div className="px-4 py-2 mt-2">
             <div className="bg-white rounded-2xl p-2 flex items-center justify-between shadow-sm border border-gray-100">
                 <button onClick={() => handleMonthChange(-1)} className="w-10 h-10 flex items-center justify-center bg-gray-50 rounded-xl text-blue-600">
@@ -199,11 +253,12 @@ const App: React.FC = () => {
             </div>
         </div>
 
+        {/* Main Content */}
         <main className="p-4 space-y-4">
           {isLoading ? (
              <div className="py-20 text-center">
                 <div className="spinner mx-auto mb-4"></div>
-                <p className="text-gray-400 font-bold">جاري تحميل خزنتك السحابية...</p>
+                <p className="text-gray-400 font-bold">جاري تحميل بياناتك من السحابة...</p>
              </div>
           ) : (
             <>
@@ -244,6 +299,7 @@ const App: React.FC = () => {
           )}
         </main>
 
+        {/* Floating Action Button */}
         {currentView === 'dashboard' && !isLoading && (
           <ExpenseInput 
             onAddExpense={(e) => setExpenses(prev => [e, ...prev])} 
@@ -251,14 +307,27 @@ const App: React.FC = () => {
           />
         )}
 
+        {/* Settings */}
         <SettingsModal 
           isOpen={showSettings} 
           onClose={() => setShowSettings(false)}
           thresholds={activeBudget.alertThresholds}
           currentCurrency={currency}
           onSave={(t, c) => { setCurrency(c); }}
-          username={syncKey}
-          onSyncKeyChange={setSyncKey}
+          username={username}
+          onLogout={handleLogout}
+        />
+
+        <YearlyReportModal
+           isOpen={showYearlyReport}
+           onClose={() => setShowYearlyReport(false)}
+           expenses={expenses}
+           incomes={incomes}
+           obligationPayments={obligationPayments}
+           budgets={budgets}
+           openingSavings={openingSavings}
+           debts={debts}
+           currentDate={selectedDate}
         />
       </div>
     </div>

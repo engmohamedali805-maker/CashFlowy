@@ -1,85 +1,85 @@
 
 export const dataService = {
   /**
-   * جلب البيانات من السحابة باستخدام مفتاح المزامنة (Sync Key)
+   * Helper to fetch with timeout and handle errors
    */
-  async fetchState(syncKey: string) {
-    if (!syncKey) return null;
+  async request(url: string, options: RequestInit = {}) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 15000); // 15 second timeout for slower networks
+
     try {
-      const response = await fetch(`/api/data?username=${encodeURIComponent(syncKey)}`);
-      
-      if (!response.ok) {
-        // إذا لم يجد بيانات (404 مثلاً أو مستخدم جديد) لا نعتبره خطأ فادحاً
-        if (response.status === 404) return null;
-        throw new Error(`Cloud error: ${response.status}`);
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      clearTimeout(id);
+
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("text/html")) {
+         throw new Error("Server Misconfigured (API Route Not Found)");
       }
 
       const data = await response.json();
-      return data.state;
-    } catch (err) {
-      console.warn('Network issue fetching data from cloud, using local cache if available.');
-      return null;
-    }
-  },
-
-  /**
-   * مزامنة الحالة الكاملة للتطبيق مع قاعدة بيانات Neon
-   */
-  async syncState(syncKey: string, state: any) {
-    if (!syncKey) return;
-    try {
-      const response = await fetch('/api/data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          action: 'sync', 
-          username: syncKey, 
-          state 
-        }),
-      });
 
       if (!response.ok) {
-        throw new Error('Sync failed on server');
+        throw new Error(data.error || `Server Error: ${response.status}`);
       }
-      return await response.json();
-    } catch (err) {
-      console.error('Cloud sync failed - data is saved locally for now');
+
+      return data;
+    } catch (err: any) {
+      clearTimeout(id);
+      if (err.name === 'AbortError') {
+        throw new Error("Connection timed out. Please check your internet.");
+      }
       throw err;
     }
   },
 
   /**
-   * تسجيل حساب سحابي جديد محمي بكلمة مرور
+   * Fetch user state from Cloud DB
+   */
+  async fetchState(username: string) {
+    if (!username) return null;
+    const data = await this.request(`/api/data?username=${encodeURIComponent(username)}`);
+    return data.state;
+  },
+
+  /**
+   * Sync state to Cloud DB
+   */
+  async syncState(username: string, state: any) {
+    if (!username) return;
+    await this.request('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        action: 'sync', 
+        username, 
+        state 
+      }),
+    });
+  },
+
+  /**
+   * Create new account
    */
   async register(username: string, password: string): Promise<void> {
-    const response = await fetch('/api/data', {
+    await this.request('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'register', username, password }),
     });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || 'فشل في إنشاء الحساب السحابي');
-    }
   },
 
   /**
-   * تسجيل الدخول واستعادة البيانات السحابية
+   * Login to account
    */
   async login(username: string, password: string): Promise<any> {
-    const response = await fetch('/api/data', {
+    const data = await this.request('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'login', username, password }),
     });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || 'خطأ في اسم المستخدم أو كلمة المرور');
-    }
-    
-    const data = await response.json();
     return data.state;
   }
 };
